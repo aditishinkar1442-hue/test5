@@ -1,87 +1,72 @@
 import streamlit as st
+import math
+
+# ===============================
+# Black-Scholes Functions (NO SCIPY)
+# ===============================
+def N(x):
+    "Cumulative normal distribution function (approximation)"
+    return 0.5 * (1 + math.erf(x / math.sqrt(2)))
+
+
+def black_scholes(F, K, T, r, sigma, option_type="call"):
+    d1 = (math.log(F / K) + (0 + 0.5 * sigma**2) * T) / (sigma * math.sqrt(T))
+    d2 = d1 - sigma * math.sqrt(T)
+
+    if option_type == "call":
+        return math.exp(-r * T) * (F * N(d1) - K * N(d2))
+    else:  # put
+        return math.exp(-r * T) * (K * N(-d2) - F * N(-d1))
+
+
+# ===============================
+# PAGE SETTINGS
+# ===============================
+st.set_page_config(page_title="Forex Option Calculator", page_icon="💹", layout="wide")
+
+st.title("💹 USD/INR Option Chain & Option Calculator")
+st.write("A simple and clean app for Forex Options (USD/INR).")
+
+
+# ===============================
+# OPTION CHAIN (DUMMY DATA FOR DISPLAY)
+# ===============================
+st.subheader("📊 USD/INR Option Chain")
+
 import pandas as pd
-import numpy as np
-from math import log, sqrt, exp
-from scipy.stats import norm
 
-st.set_page_config(page_title="USD/INR Option Calculator", page_icon="💱", layout="wide")
+strikes = [82, 82.5, 83, 83.5, 84]
+calls = [0.20, 0.34, 0.50, 0.75, 1.10]
+puts = [1.10, 0.75, 0.50, 0.34, 0.20]
 
-# --------------------------------------------
-# FUNCTIONS
-# --------------------------------------------
+option_chain = pd.DataFrame({
+    "Strike Price": strikes,
+    "Call Premium (₹)": calls,
+    "Put Premium (₹)": puts
+})
 
-def fx_black_scholes(S, K, T, r_d, r_f, vol, option_type):
-    """FX Black-Scholes Model"""
-    try:
-        d1 = (np.log(S / K) + (r_d - r_f + 0.5 * vol * vol) * T) / (vol * np.sqrt(T))
-        d2 = d1 - vol * np.sqrt(T)
-
-        if option_type == "Call":
-            price = S * exp(-r_f * T) * norm.cdf(d1) - K * exp(-r_d * T) * norm.cdf(d2)
-        else:
-            price = K * exp(-r_d * T) * norm.cdf(-d2) - S * exp(-r_f * T) * norm.cdf(-d1)
-
-        return round(price, 4)
-    except:
-        return 0.0
+st.dataframe(option_chain, use_container_width=True)
 
 
-# --------------------------------------------
-# PAGE TITLE
-# --------------------------------------------
+# ===============================
+# OPTION CALCULATOR
+# ===============================
+st.subheader("🧮 Forex Option Calculator (Black-Scholes)")
 
-st.title("💱 USD/INR Forex Option Calculator & Option Chain")
-st.write("A clean UI app to calculate FX options & display USD/INR option chain.")
+col1, col2 = st.columns(2)
 
-tab1, tab2 = st.tabs(["📊 Option Chain (USD/INR)", "🧮 Option Calculator"])
+with col1:
+    F = st.number_input("💱 Future Price (USD/INR)", value=83.0)
+    K = st.number_input("🎯 Strike Price", value=83.0)
+    sigma = st.number_input("📉 Volatility (σ) in %", value=5.0) / 100
 
-
-# --------------------------------------------
-# TAB 1 — OPTION CHAIN
-# --------------------------------------------
-
-with tab1:
-    st.header("📊 USD/INR Option Chain")
-
-    strikes = [82, 82.25, 82.5, 82.75, 83, 83.25, 83.5, 83.75, 84]
-    calls = [0.60, 0.52, 0.45, 0.39, 0.32, 0.28, 0.25, 0.22, 0.20]
-    puts =  [0.20, 0.24, 0.28, 0.34, 0.40, 0.46, 0.52, 0.60, 0.68]
-
-    df = pd.DataFrame({
-        "Strike": strikes,
-        "Call Price": calls,
-        "Put Price": puts
-    })
-
-    st.dataframe(df, use_container_width=True)
+with col2:
+    T = st.number_input("⏳ Time to Expiry (Years)", value=0.1)
+    r = st.number_input("🏦 Risk-Free Interest Rate (%)", value=6.0) / 100
+    option_type = st.selectbox("Option Type", ["call", "put"])
 
 
-# --------------------------------------------
-# TAB 2 — OPTION CALCULATOR
-# --------------------------------------------
+if st.button("Calculate Premium"):
+    premium = black_scholes(F, K, T, r, sigma, option_type)
+    st.success(f"💰 Option Premium = ₹{premium:.4f}")
 
-with tab2:
-    st.header("🧮 USD/INR Option Calculator")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        S = st.number_input("💵 Spot Price (USD/INR)", min_value=1.0, value=83.00)
-        F = st.number_input("📈 Future Price (USD/INR)", min_value=1.0, value=83.20)
-        K = st.number_input("🎯 Strike Price", min_value=1.0, value=83.00)
-        vol = st.number_input("📉 Volatility (in %)", min_value=1.0, value=6.0) / 100
-
-    with col2:
-        T = st.number_input("⏳ Time to Expiry (Years)", min_value=0.001, value=0.083)
-        r_d = st.number_input("🏦 Domestic Interest Rate (INR %)", min_value=0.0, value=6.5) / 100
-        r_f = st.number_input("🌎 Foreign Interest Rate (USD %)", min_value=0.0, value=5.0) / 100
-        option_type = st.selectbox("Option Type", ["Call", "Put"])
-
-    if st.button("Calculate Option Price"):
-        price = fx_black_scholes(S, K, T, r_d, r_f, vol, option_type)
-        st.success(f"💰 {option_type} Option Price: {price}")
-
-
-# --------------------------------------------
-# END
-# --------------------------------------------
