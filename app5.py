@@ -1,90 +1,116 @@
 import streamlit as st
-import pandas as pd
 import math
 
-st.set_page_config(page_title="Forex Option Calculator", page_icon="💹", layout="wide")
+st.set_page_config(page_title="USD/INR Options App", page_icon="💹", layout="wide")
 
-st.title("💹 USD/INR Forex Option Chain + Option Calculator")
+# ===== Normal CDF (no scipy needed) =====
+def normal_cdf(x):
+    return (1.0 + math.erf(x / math.sqrt(2.0))) / 2.0
 
-# ----------------------------
-# 1) Spot and Future Price
-# ----------------------------
-spot = st.number_input("💰 Spot Price (USD/INR)", min_value=70.0, max_value=100.0, value=83.20, step=0.10)
-future = st.number_input("📈 Future Price (USD/INR)", min_value=70.0, max_value=100.0, value=83.50, step=0.10)
 
-st.write("---")
-
-# -----------------------------------------
-# 2) Build Option Chain (ATM / ITM / OTM)
-# -----------------------------------------
-strikes = [round(spot + i, 2) for i in range(-5, 6)]  # 11 strikes
-atm_strike = min(strikes, key=lambda x: abs(x - spot))
-
-chain_data = []
-for strike in strikes:
-    if strike == atm_strike:
-        status = "ATM"
-    elif strike > spot:
-        status = "OTM"
-    else:
-        status = "ITM"
-
-    chain_data.append([strike, future - strike, strike - future, status])
-
-df = pd.DataFrame(chain_data, columns=["Strike", "Call IV Price", "Put IV Price", "Option Type"])
-
-# Color function
-def color_code(val):
-    if val == "ATM":
-        return "background-color: yellow; color: black"
-    elif val == "ITM":
-        return "background-color: lightgreen; color: black"
-    else:
-        return "background-color: lightblue; color: black"
-
-st.subheader("📊 USD/INR Option Chain")
-st.dataframe(df.style.applymap(color_code, subset=["Option Type"]), height=400)
-
-st.write("---")
-
-# ------------------------------
-# 3) Option Calculator Section
-# ------------------------------
-st.header("🧮 Option Price Calculator")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    calc_strike = st.number_input(
-        "Strike Price",
-        min_value=70.0,
-        max_value=100.0,
-        value=float(atm_strike),   # FIXED ERROR HERE
-        step=0.5
-    )
-    T = st.number_input("⏳ Time to Expiry (Years)", min_value=0.01, max_value=1.0, value=0.0833)
-with col2:
-    r = st.number_input("📉 Interest Rate (%)", min_value=0.1, max_value=15.0, value=6.0)
-    vol = st.number_input("📊 Volatility (%)", min_value=1.0, max_value=50.0, value=10.0)
-
-# ---------------------------------------
-# Black-Scholes (WITHOUT SciPy)
-# ---------------------------------------
-def N(x):
-    return 0.5 * (1 + math.erf(x / math.sqrt(2)))
-
-def black_scholes(F, K, T, r, sigma, type="call"):
+# ===== Black Scholes Calculator =====
+def black_scholes(F, K, T, r, sigma, option_type):
     d1 = (math.log(F/K) + (0.5 * sigma**2) * T) / (sigma * math.sqrt(T))
     d2 = d1 - sigma * math.sqrt(T)
 
-    if type == "call":
-        return math.exp(-r*T)* (F*N(d1) - K*N(d2))
+    if option_type == "CALL":
+        price = math.exp(-r*T) * (F*normal_cdf(d1) - K*normal_cdf(d2))
     else:
-        return math.exp(-r*T)* (K*N(-d2) - F*N(-d1))
+        price = math.exp(-r*T) * (K*normal_cdf(-d2) - F*normal_cdf(-d1))
 
-if st.button("Calculate Option Price"):
-    call_price = black_scholes(future, calc_strike, T, r/100, vol/100, "call")
-    put_price = black_scholes(future, calc_strike, T, r/100, vol/100, "put")
+    return price
 
-    st.success(f"💵 Call Option Price: {call_price:.4f}")
-    st.info(f"📘 Put Option Price: {put_price:.4f}")
+
+# ===== Sidebar Inputs =====
+st.sidebar.header("📌 USD/INR Inputs")
+
+spot = st.sidebar.number_input("Spot Price (USD/INR)", min_value=70.0, max_value=100.0, value=83.30)
+future = st.sidebar.number_input("Future Price (USD/INR)", min_value=70.0, max_value=100.0, value=83.50)
+vol = st.sidebar.number_input("Volatility (%)", min_value=1.0, max_value=50.0, value=6.0) / 100
+rate = st.sidebar.number_input("Interest Rate (%)", min_value=0.0, max_value=20.0, value=6.0) / 100
+T = st.sidebar.number_input("Time to Expiry (Years)", min_value=0.01, max_value=1.0, value=0.25)
+
+st.title("💹 USD/INR Options Chain + Calculator")
+
+
+# ===== Option Chain Table =====
+st.subheader("📘 USD/INR Option Chain")
+
+strikes = [future - 1.0, future - 0.5, future, future + 0.5, future + 1.0]
+strikes = [round(s, 2) for s in strikes]
+
+call_prices = []
+put_prices = []
+call_status = []
+put_status = []
+
+for K in strikes:
+
+    c = black_scholes(future, K, T, rate, vol, "CALL")
+    p = black_scholes(future, K, T, rate, vol, "PUT")
+
+    call_prices.append(round(c, 4))
+    put_prices.append(round(p, 4))
+
+    # Identify ATM / ITM / OTM
+    # Call ITM: F > K
+    if future > K:
+        call_status.append("ITM")
+    elif future == K:
+        call_status.append("ATM")
+    else:
+        call_status.append("OTM")
+
+    # Put ITM: F < K
+    if future < K:
+        put_status.append("ITM")
+    elif future == K:
+        put_status.append("ATM")
+    else:
+        put_status.append("OTM")
+
+
+import pandas as pd
+
+df = pd.DataFrame({
+    "Strike": strikes,
+    "CALL Price": call_prices,
+    "CALL Status": call_status,
+    "PUT Price": put_prices,
+    "PUT Status": put_status
+})
+
+# Coloring Logic
+def color_rows(row):
+    color = ""
+    if row["CALL Status"] == "ITM":
+        color = "background-color: #ffb3b3"   # red-ish
+    elif row["CALL Status"] == "ATM":
+        color = "background-color: #ffffb3"   # yellow
+    elif row["CALL Status"] == "OTM":
+        color = "background-color: #b3ffb3"   # green
+
+    # Put separate color shading
+    if row["PUT Status"] == "ITM":
+        color = "background-color: #ffccff"   # Purple light
+    elif row["PUT Status"] == "ATM":
+        color = "background-color: #e6e6ff"
+    elif row["PUT Status"] == "OTM":
+        color = "background-color: #ccffff"
+
+    return [color] * len(row)
+
+
+st.dataframe(df.style.apply(color_rows, axis=1), use_container_width=True)
+
+
+# ===== Option Calculator =====
+st.subheader("🧮 Option Calculator")
+
+calc_strike = st.number_input("Strike Price", min_value=70.0, max_value=100.0, value=future, step=0.5)
+opt_type = st.selectbox("Option Type", ["CALL", "PUT"])
+
+calc_price = black_scholes(future, calc_strike, T, rate, vol, opt_type)
+
+st.success(f"📌 {opt_type} Price: {calc_price:.4f}")
+
