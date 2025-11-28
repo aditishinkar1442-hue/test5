@@ -1,103 +1,90 @@
 import streamlit as st
 import pandas as pd
+import math
 
-st.set_page_config(page_title="USD/INR Option Calculator", page_icon="💹", layout="wide")
+st.set_page_config(page_title="Forex Option Calculator", page_icon="💹", layout="wide")
 
-# --------------------- HEADER ---------------------
-st.title("💹 USD/INR Options Chain + Option Calculator")
+st.title("💹 USD/INR Forex Option Chain + Option Calculator")
 
-st.markdown("""
-This app shows the **USD/INR Options Chain**, highlights **ATM / ITM / OTM**, 
-and provides an **Option Calculator** for quick analysis.
-""")
+# ----------------------------
+# 1) Spot and Future Price
+# ----------------------------
+spot = st.number_input("💰 Spot Price (USD/INR)", min_value=70.0, max_value=100.0, value=83.20, step=0.10)
+future = st.number_input("📈 Future Price (USD/INR)", min_value=70.0, max_value=100.0, value=83.50, step=0.10)
 
-st.divider()
+st.write("---")
 
-# --------------------- INPUTS ---------------------
+# -----------------------------------------
+# 2) Build Option Chain (ATM / ITM / OTM)
+# -----------------------------------------
+strikes = [round(spot + i, 2) for i in range(-5, 6)]  # 11 strikes
+atm_strike = min(strikes, key=lambda x: abs(x - spot))
 
-col1, col2, col3 = st.columns(3)
+chain_data = []
+for strike in strikes:
+    if strike == atm_strike:
+        status = "ATM"
+    elif strike > spot:
+        status = "OTM"
+    else:
+        status = "ITM"
+
+    chain_data.append([strike, future - strike, strike - future, status])
+
+df = pd.DataFrame(chain_data, columns=["Strike", "Call IV Price", "Put IV Price", "Option Type"])
+
+# Color function
+def color_code(val):
+    if val == "ATM":
+        return "background-color: yellow; color: black"
+    elif val == "ITM":
+        return "background-color: lightgreen; color: black"
+    else:
+        return "background-color: lightblue; color: black"
+
+st.subheader("📊 USD/INR Option Chain")
+st.dataframe(df.style.applymap(color_code, subset=["Option Type"]), height=400)
+
+st.write("---")
+
+# ------------------------------
+# 3) Option Calculator Section
+# ------------------------------
+st.header("🧮 Option Price Calculator")
+
+col1, col2 = st.columns(2)
 
 with col1:
-    spot = st.number_input("💰 Spot Price (USD/INR)", min_value=70.0, max_value=95.0, value=83.20, step=0.01)
-
+    calc_strike = st.number_input(
+        "Strike Price",
+        min_value=70.0,
+        max_value=100.0,
+        value=float(atm_strike),   # FIXED ERROR HERE
+        step=0.5
+    )
+    T = st.number_input("⏳ Time to Expiry (Years)", min_value=0.01, max_value=1.0, value=0.0833)
 with col2:
-    future = st.number_input("📈 Future Price (USD/INR)", min_value=70.0, max_value=100.0, value=83.50, step=0.01)
+    r = st.number_input("📉 Interest Rate (%)", min_value=0.1, max_value=15.0, value=6.0)
+    vol = st.number_input("📊 Volatility (%)", min_value=1.0, max_value=50.0, value=10.0)
 
-with col3:
-    strikes_range = st.number_input("🔢 Number of Strikes (above & below ATM)", min_value=3, max_value=15, value=6)
+# ---------------------------------------
+# Black-Scholes (WITHOUT SciPy)
+# ---------------------------------------
+def N(x):
+    return 0.5 * (1 + math.erf(x / math.sqrt(2)))
 
-st.divider()
+def black_scholes(F, K, T, r, sigma, type="call"):
+    d1 = (math.log(F/K) + (0.5 * sigma**2) * T) / (sigma * math.sqrt(T))
+    d2 = d1 - sigma * math.sqrt(T)
 
-# --------------------- OPTION CHAIN TABLE ---------------------
-
-st.subheader("📊 USD/INR Options Chain (Highlighted ATM / ITM / OTM)")
-
-# Generate strikes around spot price
-atm_strike = round(spot)
-strikes = [atm_strike + i for i in range(-strikes_range, strikes_range + 1)]
-
-data = {
-    "Strike": strikes,
-    "Call Premium (Fake Data)": [abs(spot - s) + 1 for s in strikes],
-    "Put Premium (Fake Data)": [abs(s - spot) + 1 for s in strikes]
-}
-
-df = pd.DataFrame(data)
-
-# Classification (ATM / ITM / OTM)
-def classify_option(strike, spot):
-    if strike == round(spot):
-        return "ATM"
-    elif strike < spot:
-        return "Call ITM / Put OTM"
+    if type == "call":
+        return math.exp(-r*T)* (F*N(d1) - K*N(d2))
     else:
-        return "Call OTM / Put ITM"
+        return math.exp(-r*T)* (K*N(-d2) - F*N(-d1))
 
-df["Option Type"] = df["Strike"].apply(lambda s: classify_option(s, spot))
+if st.button("Calculate Option Price"):
+    call_price = black_scholes(future, calc_strike, T, r/100, vol/100, "call")
+    put_price = black_scholes(future, calc_strike, T, r/100, vol/100, "put")
 
-# Colors
-def highlight_row(row):
-    if row["Option Type"] == "ATM":
-        return ['background-color: yellow'] * len(row)
-    elif "ITM" in row["Option Type"]:
-        return ['background-color: lightgreen'] * len(row)
-    else:
-        return ['background-color: lightcoral'] * len(row)
-
-st.dataframe(df.style.apply(highlight_row, axis=1), use_container_width=True)
-
-st.divider()
-
-
-# --------------------- OPTION CALCULATOR ---------------------
-
-st.subheader("🧮 Option Calculator")
-
-colA, colB, colC = st.columns(3)
-
-with colA:
-    calc_strike = st.number_input("Strike Price", min_value=70.0, max_value=100.0, value=atm_strike, step=0.5)
-
-with colB:
-    premium = st.number_input("Premium Paid (₹)", min_value=0.1, max_value=50.0, value=2.5, step=0.1)
-
-with colC:
-    option_type = st.selectbox("Option Type", ["Call", "Put"])
-
-# Payoff Calculation
-if option_type == "Call":
-    intrinsic = max(spot - calc_strike, 0)
-else:
-    intrinsic = max(calc_strike - spot, 0)
-
-profit_loss = intrinsic - premium
-
-colP, colQ = st.columns(2)
-
-with colP:
-    st.metric(label="Intrinsic Value", value=f"₹{intrinsic:.2f}")
-
-with colQ:
-    st.metric(label="Profit / Loss", value=f"₹{profit_loss:.2f}")
-
-st.success("Calculator Ready — No SciPy Needed. Fully Deployable on Streamlit Cloud.")
+    st.success(f"💵 Call Option Price: {call_price:.4f}")
+    st.info(f"📘 Put Option Price: {put_price:.4f}")
